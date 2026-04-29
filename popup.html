@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YT Music Crossfade</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 260px;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0f0f0f;
+      color: #f1f1f1;
+      padding: 18px 20px 22px;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    header svg { flex-shrink: 0; }
+
+    h1 {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: #fff;
+      line-height: 1.2;
+    }
+
+    h1 span {
+      display: block;
+      font-size: 10px;
+      font-weight: 400;
+      color: #aaa;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      margin-top: 2px;
+    }
+
+    /* Toggle */
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 18px;
+    }
+
+    .label {
+      font-size: 13px;
+      color: #ccc;
+    }
+
+    .toggle {
+      position: relative;
+      width: 40px;
+      height: 22px;
+    }
+
+    .toggle input { opacity: 0; width: 0; height: 0; }
+
+    .slider {
+      position: absolute;
+      inset: 0;
+      background: #333;
+      border-radius: 22px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .slider::before {
+      content: '';
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      background: #fff;
+      border-radius: 50%;
+      left: 3px;
+      top: 3px;
+      transition: transform 0.2s;
+    }
+
+    input:checked + .slider { background: #ff0033; }
+    input:checked + .slider::before { transform: translateX(18px); }
+
+    /* Slider */
+    .skip-section { margin-top: 4px; }
+    .skip-section + .skip-section { margin-top: 16px; }
+
+    .skip-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 10px;
+    }
+
+    .skip-label span:first-child { font-size: 13px; color: #ccc; }
+
+    .skip-value {
+      font-size: 22px;
+      font-weight: 700;
+      color: #ff0033;
+      line-height: 1;
+    }
+
+    .skip-value em {
+      font-size: 11px;
+      font-weight: 400;
+      color: #888;
+      font-style: normal;
+      margin-left: 2px;
+    }
+
+    input[type="range"] {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 4px;
+      border-radius: 2px;
+      background: #333;
+      outline: none;
+      cursor: pointer;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #ff0033;
+      cursor: pointer;
+      box-shadow: 0 0 0 3px rgba(255,0,51,0.2);
+      transition: box-shadow 0.15s;
+    }
+
+    input[type="range"]:hover::-webkit-slider-thumb {
+      box-shadow: 0 0 0 5px rgba(255,0,51,0.3);
+    }
+
+    footer {
+      margin-top: 20px;
+      font-size: 10px;
+      color: #555;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <!-- Simple waveform icon -->
+    <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="28" height="28" rx="8" fill="#ff0033" fill-opacity="0.15"/>
+      <rect x="4"  y="11" width="3" height="6"  rx="1.5" fill="#ff0033"/>
+      <rect x="9"  y="7"  width="3" height="14" rx="1.5" fill="#ff0033"/>
+      <rect x="14" y="4"  width="3" height="20" rx="1.5" fill="#ff0033"/>
+      <rect x="19" y="7"  width="3" height="14" rx="1.5" fill="#ff0033"/>
+      <rect x="24" y="11" width="3" height="6"  rx="1.5" fill="#ff0033" opacity="0.5"/>
+    </svg>
+    <h1>YT Music Crossfade <span>Chrome Extension</span></h1>
+  </header>
+
+  <div class="row">
+    <span class="label">Enabled</span>
+    <label class="toggle">
+      <input type="checkbox" id="toggleEnabled" />
+      <span class="slider"></span>
+    </label>
+  </div>
+
+    <div class="skip-section">
+      <div class="skip-label">
+        <span>Skip last</span>
+        <span id="skipValue" class="skip-value">5<em>sec</em></span>
+      </div>
+      <input type="range" id="skipRange" min="1" max="30" step="1" value="5" />
+    </div>
+
+    <div class="skip-section">
+      <div class="skip-label">
+        <span>Skip first</span>
+        <span id="introSkipValue" class="skip-value">0<em>sec</em></span>
+      </div>
+      <input type="range" id="introSkipRange" min="0" max="30" step="1" value="0" />
+    </div>
+
+  <footer>music.youtube.com only</footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>
