@@ -1,251 +1,203 @@
-# YT Music Crossfade — Chrome Extension
+# YT Music Crossfade (Chrome Extension)
 
-> Auto-skips the last N seconds of any YouTube Music track and advances to the next one.  
-> Manifest V3 · Vanilla JS · No external libraries
+Skip the end of the current track and skip the start of the next track on YouTube Music.
 
----
-
-## Project Structure
-
-```
-yt-music-crossfade/
-├── manifest.json     ← Extension manifest (MV3)
-├── content.js        ← Core logic injected into music.youtube.com
-├── popup.html        ← Extension popup UI
-├── popup.js          ← Popup logic (reads/writes chrome.storage.sync)
-└── icons/
-    ├── icon16.png
-    ├── icon48.png
-    └── icon128.png
-```
-
-> **Do you need React / a bundler?**  
-> **No.** This is a plain folder with a few files — no `npm init`, no Vite, no webpack.  
-> MV3 extensions load raw JS files directly. Only add a build step if you later need TypeScript, module imports, or React in a DevTools panel. For this MVP, a folder + VS Code is all you need.
+- Platform: Chrome Extension Manifest V3
+- Stack: Vanilla JavaScript (no bundler)
+- Scope: `https://music.youtube.com/*`
 
 ---
 
-## How It Works
+## Current Features
 
-### Core Flow
-
-```
-Page loads on music.youtube.com
-        │
-        ▼
-content.js injected by Chrome
-        │
-        ├─► loadSettings()          ← pull skipSeconds + enabled from chrome.storage.sync
-        │
-        ├─► startPolling()          ← setInterval every 800ms looking for <video>
-        │
-        └─► MutationObserver        ← watches entire DOM for SPA navigation changes
-                │
-                ▼
-        findAndAttach()             ← finds <video>, calls attachToVideo()
-                │
-                ▼
-        attachToVideo(video)
-        ├── removes old timeupdate listener (if any)
-        ├── resets hasSkipped = false
-        └── adds:
-            ├── timeupdate  → onTimeUpdate()
-            ├── emptied     → reset hasSkipped (src changed)
-            └── loadedmetadata → reset hasSkipped (new track metadata)
-                │
-                ▼
-        onTimeUpdate()
-        ├── guard: enabled && !hasSkipped
-        ├── guard: duration >= 15s (skip ads/short clips)
-        └── if (duration - currentTime) <= skipBuffer
-                └─► hasSkipped = true → clickNext()
-```
-
-### Why Each Piece Exists
-
-| Mechanism | Reason |
-|---|---|
-| `setInterval` poll | `<video>` doesn't exist at script injection time on a SPA |
-| `MutationObserver` | SPA navigation swaps `<video>` out without a page reload |
-| `hasSkipped` flag | `timeupdate` fires ~4× per second — prevents multiple Next clicks |
-| `emptied` + `loadedmetadata` events | Reset the guard when a new track loads into the same `<video>` |
-| `MIN_TRACK_SEC = 15` | Prevents misfiring on ad segments or pre-roll clips |
-| `chrome.storage.onChanged` listener | Popup writes settings → content script picks them up live, no reload needed |
+1. `Skip last N sec` (end skip)
+   - When remaining time is within threshold, extension triggers Next.
+2. `Skip first M sec` (intro skip)
+   - On each new track, extension seeks to `M` seconds once.
+3. Live settings updates
+   - Popup updates apply immediately via `chrome.storage.onChanged`.
+4. SPA resilience
+   - Handles DOM swaps and player re-renders in YouTube Music.
 
 ---
 
-## Step-by-Step Build Plan
+## What Has Been Implemented / Hardened
 
-### Phase 0 — Folder Setup (5 min)
+The extension has gone through multiple reliability passes and currently includes:
 
-```bash
-mkdir yt-music-crossfade
-cd yt-music-crossfade
-touch manifest.json content.js popup.html popup.js
-mkdir icons
-```
+1. Per-track state machine
+   - Track state: `trackKey`, `introApplied`, `endTriggered`.
+   - Prevents duplicate end triggers and duplicate intro seeks.
 
-Add three placeholder icons (any 16×16, 48×48, 128×128 PNGs) to `icons/`.  
-You can generate them quickly with any image editor or use a free icon generator online.
+2. Multi-source track detection
+   - Primary key: `ytmusic-player[video-id]`.
+   - Fallback key: `video.currentSrc`.
 
----
+3. Persistent rebinding for SPA behavior
+   - DOM MutationObserver + periodic rebind timers.
+   - Reattaches player/video listeners if nodes are replaced.
 
-### Phase 1 — Load the Extension Unpacked (5 min)
+4. End-skip retry engine
+   - Repeated Next attempts for transient UI states.
+   - Re-arms if retries are exhausted.
 
-1. Open Chrome → `chrome://extensions`
-2. Enable **Developer mode** (top-right toggle)
-3. Click **Load unpacked** → select your `yt-music-crossfade/` folder
-4. The extension should appear in the list with no errors
-5. Navigate to `https://music.youtube.com` and open DevTools → Console  
-   You should see the content script is active (add a `console.log('crossfade loaded')` to verify)
+5. Next-button hardening
+   - Multiple selectors, including `tp-yt-paper-icon-button` variants.
+   - Filters disabled/aria-disabled controls.
+   - Keyboard fallback attempts (`Shift+N`, `MediaTrackNext`).
 
----
+6. Settings stability
+   - Values are clamped (`skipEnd: 1..30`, `skipStart: 0..30`).
+   - Slider writes are committed on `change` (not every drag tick).
 
-### Phase 2 — Core Logic (content.js) (30 min)
-
-**Goals:**
-- Find the `<video>` element
-- Attach `timeupdate` listener
-- Trigger Next button when remaining ≤ `skipBuffer`
-- Guard against double-firing
-
-**Key selectors to verify in DevTools:**
-
-```js
-// In YTMusic DevTools console:
-document.querySelector('video')                           // the player
-document.querySelector('button[aria-label="Next"]')      // next track button
-```
-
-> ⚠️ YouTube sometimes changes `aria-label` values. If `"Next"` stops working, inspect the button in DevTools and update the selector.
-
-**Test checklist:**
-- [ ] Play a track, scrub to 10 seconds before the end — does it auto-advance?
-- [ ] Does it only skip once (not repeatedly click Next)?
-- [ ] Does it work on the second track after auto-advancing?
-- [ ] Does it survive navigating to a different album/playlist?
+7. Edge fallback paths
+   - `ended` fallback trigger if threshold path is missed.
+   - Extra processing on seek/seeking/metadata.
 
 ---
 
-### Phase 3 — Popup UI (popup.html + popup.js) (20 min)
+## Runtime Flow (Actual)
 
-**Goals:**
-- Toggle extension on/off
-- Slider for skip buffer (1–30 seconds)
-- Persist settings via `chrome.storage.sync`
+```text
+Extension injects content.js on music.youtube.com
+  -> loadSettings() from chrome.storage.sync
+  -> bindRefs(): locate ytmusic-player + <video>
+  -> attach player observer (video-id changes)
+  -> attach video listeners (timeupdate, loadedmetadata, seeking, seeked, ended)
+  -> start timers:
+       - watchdog (250ms): process tick + rebind safety
+       - rebind (1000ms): re-discover player/video nodes
+  -> start DOM observer for SPA mutations
 
-**Flow:**
-```
-popup.html loads
-    → popup.js reads chrome.storage.sync
-    → renders current values
-    → on change → writes back to chrome.storage.sync
-    → content.js hears chrome.storage.onChanged → updates live
-```
-
-**Test checklist:**
-- [ ] Change skip seconds in popup → play a track → does it skip at the new time?
-- [ ] Disable in popup → does the extension stop skipping?
-- [ ] Close and reopen Chrome — do settings persist?
-
----
-
-### Phase 4 — SPA Resilience (15 min)
-
-YouTube Music is a Single Page Application. The `<video>` element can be:
-- Replaced entirely when navigating between sections
-- Briefly removed and re-added
-- Reused with a new `src`
-
-The `MutationObserver` + debounced `findAndAttach()` handles this.  
-The `setInterval` poll acts as a fallback.
-
-**Test checklist:**
-- [ ] Navigate from Home → Library → an Album — does skipping still work?
-- [ ] Use the browser back button — still works?
-- [ ] Open YouTube Music in a new tab — fresh attach works?
-
----
-
-### Phase 5 — Edge Cases & Hardening (15 min)
-
-| Edge Case | How It's Handled |
-|---|---|
-| No `<video>` on page | Polling retries every 800ms |
-| `duration` is `NaN` | Guard in `onTimeUpdate`: `isNaN(video.duration)` check |
-| Track shorter than 15s (ad) | `MIN_TRACK_SEC` guard |
-| Next button not in DOM | `clickNext()` returns false → resets `hasSkipped` so it retries |
-| Settings changed while music plays | `chrome.storage.onChanged` updates values live |
-| Extension disabled mid-track | `enabled` check at top of `onTimeUpdate` |
-
----
-
-### Phase 6 — Icons (10 min)
-
-MV3 requires actual icon files or Chrome will warn on load.
-
-Quick options:
-- Use any PNG editor (Figma, Paint, GIMP)
-- Or generate programmatically:
-
-```bash
-# Using ImageMagick (if installed):
-convert -size 128x128 xc:"#ff0033" icons/icon128.png
-convert -size 48x48  xc:"#ff0033" icons/icon48.png
-convert -size 16x16  xc:"#ff0033" icons/icon16.png
+On each processing tick:
+  1) Resolve current track key
+  2) If track key changed -> reset per-track state
+  3) Apply intro skip once for this track (if enabled)
+  4) Check end threshold and trigger Next with retries
 ```
 
 ---
 
-### Phase 7 — Optional Enhancements
+## File-by-File Function
 
-| Feature | Approach |
-|---|---|
-| Fade audio before skip | Ramp `video.volume` to 0 over N seconds, then click Next, then restore volume |
-| Show current track info in popup | `chrome.tabs.sendMessage` → content script returns `video.title` or DOM scrape |
-| Per-site enable/disable | Already scoped to `music.youtube.com` via `host_permissions` |
-| Keyboard shortcut | Add `commands` to manifest.json + background service worker |
-| Publish to Chrome Web Store | Zip the folder, submit at [chromewebstore.google.com](https://chromewebstore.google.com/category/extensions) |
+### `manifest.json`
+
+Defines extension metadata and wiring:
+
+1. Manifest V3 declaration
+2. `storage` permission
+3. Host permission for `music.youtube.com`
+4. Injects `content.js` into matching pages
+5. Registers popup UI (`popup.html`)
+6. Registers extension icons
+
+### `content.js`
+
+Main runtime controller injected into YouTube Music.
+
+Responsibilities:
+
+1. Settings load/sync (`skipEndSeconds`, `skipStartSeconds`, `enabled`)
+2. Player/video node discovery and reattachment
+3. Track boundary detection and per-track state reset
+4. Intro skip logic
+5. End skip logic with retry strategy
+6. DOM + timer-based resilience for SPA updates
+
+Key internal sections:
+
+1. Config constants
+2. `settings`, `refs`, `state` objects
+3. Storage listeners and clamping
+4. Next-action helpers (`clickNextButton`, `tryNextWithRetry`)
+5. Track-state helpers (`ensureTrackBoundaries`, `resetTrackState`)
+6. Tick pipeline (`processTick`)
+7. Attach/bind/init pipeline
+
+### `popup.html`
+
+Popup UI layout and styling.
+
+Provides:
+
+1. Enable toggle
+2. `Skip last` slider (1..30)
+3. `Skip first` slider (0..30)
+4. Lightweight visual labels for values
+
+### `popup.js`
+
+Popup behavior + storage writes.
+
+Responsibilities:
+
+1. Load current values from `chrome.storage.sync`
+2. Update labels during slider drag (`input`)
+3. Persist values on commit (`change`)
+4. Persist toggle state on change
+
+### `icons/`
+
+Static extension icons required by Chrome:
+
+1. `icon16.png`
+2. `icon48.png`
+3. `icon128.png`
 
 ---
 
-## Debugging Tips
+## Storage Keys
 
-```js
-// Run in DevTools console on music.youtube.com:
+The extension uses these sync keys:
 
-// Check video state
-const v = document.querySelector('video');
-console.log(v.currentTime, v.duration, v.duration - v.currentTime);
+1. `enabled` (boolean)
+2. `skipEndSeconds` (int, clamped 1..30)
+3. `skipStartSeconds` (int, clamped 0..30)
 
-// Manually trigger next
-document.querySelector('button[aria-label="Next"]').click();
+---
 
-// Check storage values
-chrome.storage.sync.get(null, console.log);
-```
+## Edge Cases Covered
 
-**Reload the extension after editing files:**  
-`chrome://extensions` → click the refresh (↺) icon on your extension card.  
-You also need to refresh the YouTube Music tab.
+1. Video/player nodes replaced during SPA navigation
+2. Temporary missing metadata (`duration` not finite)
+3. Short media segments (ignored with `MIN_TRACK_SEC`)
+4. Next button absent/disabled for a moment
+5. Settings changed during active playback
+6. Extension re-enabled mid-track
+7. Manual seeking into or near end-skip zone
+
+---
+
+## Local Run / Test
+
+1. Open `chrome://extensions`
+2. Enable Developer mode
+3. Click `Load unpacked`
+4. Select this folder (`ytmusic_crossfade`)
+5. Open `https://music.youtube.com`
+6. Test:
+   - natural transitions
+   - manual seek near end zone
+   - slider value changes during playback
+   - multiple consecutive tracks
+
+After code changes:
+
+1. Reload extension in `chrome://extensions`
+2. Refresh YouTube Music tab
 
 ---
 
 ## Known Limitations
 
-- YouTube can silently rename `aria-label` attributes — check this if the Next button stops working after a YouTube update.
-- The extension only runs on `music.youtube.com`, not `youtube.com`.
-- `chrome.storage.sync` has a 100KB quota — more than enough for these settings.
-- MV3 does not support persistent background pages; settings sync relies on `storage.onChanged` and is re-read on each page load.
+1. YouTube Music DOM and labels can change over time.
+2. Keyboard fallback behavior may vary by browser/platform policy.
+3. Because YouTube Music is a SPA, occasional platform-side timing quirks are possible and are handled via retries/watchdogs.
 
 ---
 
-## File Reference
+## Quick Maintenance Notes
 
-| File | Purpose |
-|---|---|
-| `manifest.json` | Extension config: permissions, content script, popup, icons |
-| `content.js` | Injected into YTMusic; detects video, monitors time, triggers Next |
-| `popup.html` | UI shell for the settings popup |
-| `popup.js` | Reads/writes `chrome.storage.sync`; live-updates content script |
-| `icons/*.png` | Required by Chrome; 16px, 48px, 128px variants |
+1. Keep selector list in `clickNextButton()` updated if YT UI changes.
+2. Keep state reset logic centralized in `resetTrackState()`.
+3. Keep slider commit behavior in popup (`change` writes) to avoid runtime churn.

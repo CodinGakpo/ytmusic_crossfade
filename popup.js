@@ -1,43 +1,44 @@
-// popup.js — reads and writes chrome.storage.sync
+// popup.js
 
-const toggleEl   = document.getElementById('toggleEnabled');
-const rangeEl    = document.getElementById('skipRange');
-const valueLabel = document.getElementById('skipValue');
-const introRangeEl = document.getElementById('introSkipRange');
-const introValueLabel = document.getElementById('introSkipValue');
+const toggleEl       = document.getElementById('toggleEnabled');
+const endRangeEl     = document.getElementById('skipRange');
+const endValueLabel  = document.getElementById('skipValue');
+const introRangeEl   = document.getElementById('introSkipRange');
+const introValueLabel= document.getElementById('introSkipValue');
 
-// Load saved settings
-chrome.storage.sync.get({ skipSeconds: 5, introSkipSeconds: 0, enabled: true }, (items) => {
-  toggleEl.checked = items.enabled;
-  rangeEl.value    = items.skipSeconds;
-  introRangeEl.value = items.introSkipSeconds;
-  updateLabel(items.skipSeconds);
-  updateIntroLabel(items.introSkipSeconds);
+chrome.storage.sync.get(
+  { skipEndSeconds: 5, skipStartSeconds: 0, enabled: true },
+  items => {
+    toggleEl.checked    = items.enabled;
+    endRangeEl.value    = items.skipEndSeconds;
+    introRangeEl.value  = items.skipStartSeconds;
+    setLabel(endValueLabel,   items.skipEndSeconds);
+    setLabel(introValueLabel, items.skipStartSeconds);
+  }
+);
+
+toggleEl.addEventListener('change', () =>
+  chrome.storage.sync.set({ enabled: toggleEl.checked })
+);
+
+endRangeEl.addEventListener('input', () => {
+  const val = +endRangeEl.value;
+  setLabel(endValueLabel, val);
 });
 
-// Enable/disable toggle
-toggleEl.addEventListener('change', () => {
-  chrome.storage.sync.set({ enabled: toggleEl.checked });
+endRangeEl.addEventListener('change', () => {
+  chrome.storage.sync.set({ skipEndSeconds: +endRangeEl.value });
 });
 
-// Skip seconds slider
-rangeEl.addEventListener('input', () => {
-  const val = parseInt(rangeEl.value, 10);
-  updateLabel(val);
-  chrome.storage.sync.set({ skipSeconds: val });
-});
-
-// Intro skip slider
 introRangeEl.addEventListener('input', () => {
-  const val = parseInt(introRangeEl.value, 10);
-  updateIntroLabel(val);
-  chrome.storage.sync.set({ introSkipSeconds: val });
+  const val = +introRangeEl.value;
+  setLabel(introValueLabel, val);
 });
 
-function updateLabel(val) {
-  valueLabel.innerHTML = `${val}<em>sec</em>`;
-}
+introRangeEl.addEventListener('change', () => {
+  chrome.storage.sync.set({ skipStartSeconds: +introRangeEl.value });
+});
 
-function updateIntroLabel(val) {
-  introValueLabel.innerHTML = `${val}<em>sec</em>`;
+function setLabel(el, val) {
+  el.innerHTML = `${val}<em>sec</em>`;
 }
