@@ -40,7 +40,7 @@ const SRC_CHANGE_STARTUP_GRACE_SEC = 4;
 const DOM_TIME_MAX_DIVERGENCE_SEC = 15; // if DOM and video times differ by more than this, distrust DOM
 
 // 0 off, 1 lifecycle, 2 verbose
-const DEBUG_LEVEL = 1;
+const DEBUG_LEVEL = 0;
 
 const settings = {
   skipEndSec: DEFAULT_SKIP_END_SEC,
@@ -816,26 +816,6 @@ function _processTickInner(source) {
   maybeTriggerEndSkip(source);
 
   if (!v.paused) state.lastPlaybackTime = v.currentTime;
-
-  const diag = getBestTimeEstimate(v);
-  const sec = Math.floor(now / 1000);
-  if (state.lastTickLogSec !== sec && sec % 2 === 0) {
-    state.lastTickLogSec = sec;
-    log(1, "[DIAGNOSTICS] tick state", {
-      source,
-      key: state.trackKey,
-      rawCT: Number(v.currentTime.toFixed(2)),
-      domCT: Number(diag.domCT).toFixed(2),
-      finalCT: Number(diag.ct.toFixed(2)),
-      rawDur: Number(v.duration).toFixed(2),
-      domDur: Number(diag.domDur).toFixed(2),
-      finalDur: Number(diag.dur.toFixed(2)),
-      remaining: Number(diag.remaining.toFixed(2)),
-      endTriggered: state.endTriggered,
-      introApplied: state.introApplied,
-      nextActive: state.nextActive
-    });
-  }
 }
 
 function onVideoTimeUpdate() { processTick("timeupdate"); }
